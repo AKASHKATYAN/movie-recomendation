@@ -1,14 +1,16 @@
 import pickle
-import streamlit as st
-import requests
 import gzip
 import pandas as pd
+import requests
+import streamlit as st
 import time
 
-# Default poster if TMDB fails
+# Default poster in case TMDB fails
 DEFAULT_POSTER = "https://via.placeholder.com/500x750?text=No+Poster"
 
-# Fetch poster safely with retries and timeout
+# -----------------------------
+# Function to fetch poster safely
+# -----------------------------
 def fetch_poster(movie_id, retries=3, timeout=5):
     url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key=8265bd1679663a7ea12ac168da84d2e8&language=en-US"
     for attempt in range(retries):
@@ -22,13 +24,17 @@ def fetch_poster(movie_id, retries=3, timeout=5):
             else:
                 return DEFAULT_POSTER
         except requests.exceptions.RequestException:
-            time.sleep(1)  # wait 1 second before retry
+            time.sleep(1)
     return DEFAULT_POSTER
 
-# Recommend movies based on similarity
+# -----------------------------
+# Function to recommend movies
+# -----------------------------
 def recommend(movie):
-    # check if movie exists
-    matching = movies[movies['title'] == movie]
+    # normalize input
+    movie_lower = movie.strip().lower()
+    matching = movies[movies['title_lower'] == movie_lower]
+
     if matching.empty:
         st.warning(f"Movie '{movie}' not found in database.")
         return [], []
@@ -36,44 +42,48 @@ def recommend(movie):
     index = matching.index[0]
     distances = sorted(list(enumerate(similarity[index])), reverse=True, key=lambda x: x[1])
 
-    recommended_movie_names = []
-    recommended_movie_posters = []
+    recommended_names = []
+    recommended_posters = []
 
-    for i in distances[1:6]:  # top 5 recommendations
+    for i in distances[1:6]:  # top 5
         movie_id = movies.iloc[i[0]].movie_id
         poster = fetch_poster(movie_id)
-        recommended_movie_posters.append(poster)
-        recommended_movie_names.append(movies.iloc[i[0]].title)
+        recommended_names.append(movies.iloc[i[0]].title)
+        recommended_posters.append(poster)
 
-    return recommended_movie_names, recommended_movie_posters
+    return recommended_names, recommended_posters
 
-# Streamlit header
-st.header('🎬 Movie Recommender System')
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.title("🎬 Movie Recommender System")
 
 # Load movies
-movies_data = pickle.load(open('model/movie_dict.pkl','rb'))
+movies_data = pickle.load(open("model/movie_dict.pkl", "rb"))
 if isinstance(movies_data, dict):
     movies = pd.DataFrame(movies_data)
 else:
     movies = movies_data
 
-# Strip extra spaces in titles
+# Normalize titles for matching
 movies['title'] = movies['title'].str.strip()
+movies['title_lower'] = movies['title'].str.lower()
 
-# Load compressed similarity
-with gzip.open('model/similarity.pkl.gz', 'rb') as f:
+# Load similarity
+with gzip.open("model/similarity.pkl.gz", "rb") as f:
     similarity = pickle.load(f)
 
-# Movie dropdown
-movie_list = movies['title'].values
-selected_movie = st.selectbox("Type or select a movie from the dropdown", movie_list)
+# Dropdown for movie selection
+selected_movie = st.selectbox("Type or select a movie from the dropdown:", movies['title'].values)
 
 # Show recommendations
-if st.button('Show Recommendation'):
-    recommended_movie_names, recommended_movie_posters = recommend(selected_movie)
+if st.button("Show Recommendation"):
+    recommended_names, recommended_posters = recommend(selected_movie)
 
-    if recommended_movie_names:
+    if recommended_names:
         cols = st.columns(5)
-        for col, name, poster in zip(cols, recommended_movie_names, recommended_movie_posters):
+        for col, name, poster in zip(cols, recommended_names, recommended_posters):
             col.text(name)
-            col.image(poster)
+            col.image(poster if poster else DEFAULT_POSTER)
+    else:
+        st.info("No recommendations found. Please try another movie.")
